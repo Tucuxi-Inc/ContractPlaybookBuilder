@@ -286,20 +286,20 @@ def analyze_contract_chunked(
     For very long documents, this splits the analysis into multiple API calls
     and combines the results.
     """
-    # For shorter documents, use single analysis
-    if len(contract_text) < 50000:
+    # Always use chunked approach for better progress tracking
+    # Smaller chunks = more frequent progress updates
+    chunk_size = 15000  # ~15k chars per chunk for granular progress
+
+    # For very short documents, use single analysis
+    if len(contract_text) < chunk_size:
         if progress_callback:
-            progress_callback(50, "Analyzing contract with AI...")
+            progress_callback(20, "Analyzing contract with AI...")
         result = analyze_contract(contract_text, agreement_type, user_role, risk_tolerance)
         if progress_callback:
             progress_callback(100, "Analysis complete")
         return result
 
     # For longer documents, chunk and combine
-    client = get_openai_client()
-
-    # Split into chunks of roughly 40k characters
-    chunk_size = 40000
     chunks = []
     for i in range(0, len(contract_text), chunk_size):
         chunks.append(contract_text[i:i + chunk_size])
