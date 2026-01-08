@@ -1,5 +1,8 @@
 """
 Excel playbook writer - creates professional Excel output from playbook data.
+
+Generates comprehensive playbooks matching professional legal standards with
+detailed clause-by-clause analysis.
 """
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
@@ -17,13 +20,15 @@ COLORS = {
     "green_bg": "CCFFCC",       # Light green for low risk
     "alt_row": "F2F2F2",        # Light gray for alternating rows
     "border": "CCCCCC",         # Gray border
+    "section_bg": "E6E6E6",     # Section header background
 }
 
 # Styles
 HEADER_FONT = Font(bold=True, color=COLORS["header_fg"], size=11)
 HEADER_FILL = PatternFill(start_color=COLORS["header_bg"], end_color=COLORS["header_bg"], fill_type="solid")
-TITLE_FONT = Font(bold=True, size=14)
+TITLE_FONT = Font(bold=True, size=16)
 SUBTITLE_FONT = Font(bold=True, size=12)
+SECTION_FONT = Font(bold=True, size=11)
 WRAP_ALIGNMENT = Alignment(wrap_text=True, vertical="top")
 CENTER_ALIGNMENT = Alignment(horizontal="center", vertical="center")
 THIN_BORDER = Border(
@@ -51,6 +56,27 @@ def set_column_widths(ws, widths: dict):
         ws.column_dimensions[col].width = width
 
 
+def format_list(items, prefix="•"):
+    """Format a list of items with bullet points."""
+    if not items:
+        return ""
+    if isinstance(items, str):
+        return items
+    formatted = []
+    for item in items:
+        if isinstance(item, str):
+            # Clean up existing bullets
+            clean_item = item.lstrip("•-* ").strip()
+            if clean_item:
+                formatted.append(f"{prefix} {clean_item}")
+        elif isinstance(item, dict):
+            # Handle dict items (like fallback positions)
+            desc = item.get("description", "")
+            if desc:
+                formatted.append(f"{prefix} {desc}")
+    return "\n".join(formatted)
+
+
 def create_overview_sheet(wb: Workbook, playbook_data: dict) -> None:
     """Create the Overview sheet with agreement summary."""
     ws = wb.active
@@ -74,9 +100,11 @@ def create_overview_sheet(wb: Workbook, playbook_data: dict) -> None:
 
     summary_data = [
         ("Agreement Title:", summary.get("title", "Not specified")),
+        ("Agreement Type:", summary.get("agreement_type", "Not specified")),
         ("Parties:", summary.get("parties", "Not specified")),
         ("Purpose:", summary.get("purpose", "Not specified")),
         ("Key Dates/Terms:", summary.get("key_dates", "Not specified")),
+        ("Governing Law:", summary.get("governing_law", "Not specified")),
         ("Overall Risk Level:", summary.get("overall_risk_level", "Medium")),
         ("Critical Issues:", str(summary.get("critical_issues_count", 0))),
     ]
@@ -89,8 +117,21 @@ def create_overview_sheet(wb: Workbook, playbook_data: dict) -> None:
         ws[f"B{row}"].alignment = WRAP_ALIGNMENT
         row += 1
 
+    # Executive Summary
+    row += 1
+    ws[f"A{row}"] = "EXECUTIVE SUMMARY"
+    ws[f"A{row}"].font = SUBTITLE_FONT
+    ws.merge_cells(f"A{row}:D{row}")
+    row += 1
+
+    exec_summary = summary.get("executive_summary", "")
+    ws[f"A{row}"] = exec_summary
+    ws[f"A{row}"].alignment = WRAP_ALIGNMENT
+    ws.merge_cells(f"A{row}:D{row}")
+    ws.row_dimensions[row].height = 80
+
     # Risk level color coding legend
-    row += 2
+    row += 3
     ws[f"A{row}"] = "RISK LEVEL LEGEND"
     ws[f"A{row}"].font = SUBTITLE_FONT
     ws.merge_cells(f"A{row}:D{row}")
@@ -117,44 +158,50 @@ def create_overview_sheet(wb: Workbook, playbook_data: dict) -> None:
     ws[f"A{row}"] = "DEAL BREAKERS (Do Not Accept)"
     ws[f"A{row}"].font = SUBTITLE_FONT
     ws[f"A{row}"].fill = get_risk_fill("red")
+    ws.merge_cells(f"A{row}:D{row}")
 
     row += 1
-    for item in quick_ref.get("deal_breakers", [])[:10]:
-        ws[f"A{row}"] = f"• {item}"
+    for item in quick_ref.get("deal_breakers", [])[:15]:
+        ws[f"A{row}"] = f"✗ {item}"
+        ws.merge_cells(f"A{row}:D{row}")
         row += 1
 
     row += 1
     ws[f"A{row}"] = "HIGH PRIORITY ITEMS"
     ws[f"A{row}"].font = SUBTITLE_FONT
     ws[f"A{row}"].fill = get_risk_fill("yellow")
+    ws.merge_cells(f"A{row}:D{row}")
 
     row += 1
-    for item in quick_ref.get("high_priority_items", [])[:10]:
-        ws[f"A{row}"] = f"• {item}"
+    for item in quick_ref.get("high_priority_items", [])[:15]:
+        ws[f"A{row}"] = f"⚠ {item}"
+        ws.merge_cells(f"A{row}:D{row}")
         row += 1
 
     set_column_widths(ws, {"A": 25, "B": 60, "C": 30, "D": 30})
 
 
 def create_clause_analysis_sheet(wb: Workbook, playbook_data: dict) -> None:
-    """Create the main Clause Analysis sheet."""
+    """Create the main Clause Analysis sheet matching professional playbook format."""
     ws = wb.create_sheet("Clause Analysis")
 
-    # Headers
+    # Headers matching the example playbook structure
     headers = [
-        "Section",
-        "Issue/Clause",
-        "Original Language",
-        "Business Context",
-        "Customer Concerns",
-        "Provider Concerns",
-        "Preferred Position",
-        "Preferred Language",
-        "Fallback Positions",
-        "Don't Accept",
-        "Risk Level",
-        "Approval Required",
-        "Negotiation Tips"
+        "Section",           # A - Section reference
+        "Subpart",           # B - Subsection (a), (b), new, etc.
+        "Issue",             # C - Clause title / issue name
+        "Existing Language", # D - Original contract language or suggested new language
+        "Customer Issues",   # E - Customer concerns (bullet points)
+        "Customer Edits",    # F - Customer edit suggestions
+        "Provider Issues",   # G - Provider concerns (bullet points)
+        "Provider Edits",    # H - Provider edit suggestions
+        "Preferred Position", # I - Preferred outcome description
+        "Preferred Language", # J - Preferred contract language
+        "Fallback Positions", # K - Fallback options
+        "Don't Accept",      # L - Positions to avoid
+        "Risk",              # M - Risk level (Red/Yellow/Green)
+        "Approval",          # N - Who needs to approve
+        "Negotiation Tips"   # O - Practical negotiation guidance
     ]
 
     for col, header in enumerate(headers, 1):
@@ -164,107 +211,141 @@ def create_clause_analysis_sheet(wb: Workbook, playbook_data: dict) -> None:
         cell.alignment = CENTER_ALIGNMENT
         cell.border = THIN_BORDER
 
-    # Freeze header row
-    ws.freeze_panes = "A2"
+    # Freeze header row and first 3 columns
+    ws.freeze_panes = "D2"
 
     # Add clause data
     clauses = playbook_data.get("clauses", [])
 
     for row_idx, clause in enumerate(clauses, 2):
-        # Section reference
+        # A: Section reference
         ws.cell(row=row_idx, column=1, value=clause.get("section_reference", ""))
 
-        # Issue/Clause title
-        ws.cell(row=row_idx, column=2, value=clause.get("clause_title", ""))
+        # B: Subpart
+        ws.cell(row=row_idx, column=2, value=clause.get("subpart", ""))
 
-        # Original language
-        ws.cell(row=row_idx, column=3, value=clause.get("original_language", ""))
+        # C: Issue/Clause title
+        ws.cell(row=row_idx, column=3, value=clause.get("clause_title", ""))
 
-        # Business context
-        ws.cell(row=row_idx, column=4, value=clause.get("business_context", ""))
+        # D: Original/Existing language
+        ws.cell(row=row_idx, column=4, value=clause.get("original_language", ""))
 
-        # Customer perspective
-        customer = clause.get("customer_perspective", {})
-        customer_text = f"Concerns: {customer.get('concerns', '')}\n\nObjectives: {customer.get('objectives', '')}"
-        ws.cell(row=row_idx, column=5, value=customer_text)
+        # E: Customer issues (format as bullet points)
+        customer_issues = clause.get("customer_issues", [])
+        ws.cell(row=row_idx, column=5, value=format_list(customer_issues))
 
-        # Provider perspective
-        provider = clause.get("provider_perspective", {})
-        provider_text = f"Concerns: {provider.get('concerns', '')}\n\nObjectives: {provider.get('objectives', '')}"
-        ws.cell(row=row_idx, column=6, value=provider_text)
+        # F: Customer edits to consider
+        customer_edits = clause.get("customer_edits_to_consider", [])
+        ws.cell(row=row_idx, column=6, value=format_list(customer_edits))
 
-        # Preferred position
+        # G: Provider issues
+        provider_issues = clause.get("provider_issues", [])
+        ws.cell(row=row_idx, column=7, value=format_list(provider_issues))
+
+        # H: Provider edits to consider
+        provider_edits = clause.get("provider_edits_to_consider", [])
+        ws.cell(row=row_idx, column=8, value=format_list(provider_edits))
+
+        # I: Preferred position description
         preferred = clause.get("preferred_position", {})
-        ws.cell(row=row_idx, column=7, value=preferred.get("description", ""))
-        ws.cell(row=row_idx, column=8, value=preferred.get("sample_language", ""))
+        if isinstance(preferred, dict):
+            ws.cell(row=row_idx, column=9, value=preferred.get("description", ""))
+            # J: Preferred language
+            ws.cell(row=row_idx, column=10, value=preferred.get("sample_language", ""))
+        else:
+            ws.cell(row=row_idx, column=9, value=str(preferred))
 
-        # Fallback positions
+        # K: Fallback positions
         fallbacks = clause.get("fallback_positions", [])
         fallback_text = ""
         for i, fb in enumerate(fallbacks, 1):
-            fallback_text += f"{i}. {fb.get('description', '')}\n"
-            if fb.get("sample_language"):
-                fallback_text += f"   Language: {fb.get('sample_language')}\n"
-            if fb.get("conditions"):
-                fallback_text += f"   When: {fb.get('conditions')}\n"
-            fallback_text += "\n"
-        ws.cell(row=row_idx, column=9, value=fallback_text.strip())
+            if isinstance(fb, dict):
+                fallback_text += f"{i}. {fb.get('description', '')}\n"
+                if fb.get("sample_language"):
+                    fallback_text += f"   Language: {fb.get('sample_language')}\n"
+                if fb.get("conditions"):
+                    fallback_text += f"   When: {fb.get('conditions')}\n"
+                if fb.get("trade_offs"):
+                    fallback_text += f"   Trade-off: {fb.get('trade_offs')}\n"
+                fallback_text += "\n"
+            else:
+                fallback_text += f"{i}. {fb}\n"
+        ws.cell(row=row_idx, column=11, value=fallback_text.strip())
 
-        # Positions to avoid
+        # L: Positions to avoid / Don't Accept
         avoid = clause.get("positions_to_avoid", [])
         avoid_text = ""
         for item in avoid:
-            avoid_text += f"• {item.get('description', '')}\n"
-            if item.get("reason"):
-                avoid_text += f"  Reason: {item.get('reason')}\n"
-        ws.cell(row=row_idx, column=10, value=avoid_text.strip())
+            if isinstance(item, dict):
+                avoid_text += f"✗ {item.get('description', '')}\n"
+                if item.get("reason"):
+                    avoid_text += f"  Reason: {item.get('reason')}\n"
+                if item.get("red_flag_language"):
+                    avoid_text += f"  Red flag: \"{item.get('red_flag_language')}\"\n"
+            else:
+                avoid_text += f"✗ {item}\n"
+        ws.cell(row=row_idx, column=12, value=avoid_text.strip())
 
-        # Risk level
+        # M: Risk level
         risk = clause.get("risk_level", "Green")
-        risk_cell = ws.cell(row=row_idx, column=11, value=risk)
+        risk_cell = ws.cell(row=row_idx, column=13, value=risk)
         risk_cell.fill = get_risk_fill(risk)
         risk_cell.alignment = CENTER_ALIGNMENT
 
-        # Approval required
-        ws.cell(row=row_idx, column=12, value=clause.get("approval_required", "None"))
+        # N: Approval required
+        ws.cell(row=row_idx, column=14, value=clause.get("approval_required", "None"))
 
-        # Negotiation tips
-        ws.cell(row=row_idx, column=13, value=clause.get("negotiation_tips", ""))
+        # O: Negotiation tips
+        tips = clause.get("negotiation_tips", [])
+        ws.cell(row=row_idx, column=15, value=format_list(tips))
 
         # Apply formatting to all cells in the row
-        for col in range(1, 14):
+        for col in range(1, 16):
             cell = ws.cell(row=row_idx, column=col)
             cell.alignment = WRAP_ALIGNMENT
             cell.border = THIN_BORDER
 
             # Alternating row colors (except risk level column)
-            if row_idx % 2 == 0 and col != 11:
+            if row_idx % 2 == 0 and col != 13:
                 cell.fill = PatternFill(start_color=COLORS["alt_row"], end_color=COLORS["alt_row"], fill_type="solid")
+
+        # Set row height for readability
+        ws.row_dimensions[row_idx].height = 80
 
     # Set column widths
     set_column_widths(ws, {
-        "A": 12,   # Section
-        "B": 25,   # Issue
-        "C": 40,   # Original Language
-        "D": 35,   # Business Context
-        "E": 35,   # Customer Concerns
-        "F": 35,   # Provider Concerns
-        "G": 35,   # Preferred Position
-        "H": 40,   # Preferred Language
-        "I": 45,   # Fallback Positions
-        "J": 35,   # Don't Accept
-        "K": 12,   # Risk Level
-        "L": 15,   # Approval
-        "M": 40,   # Negotiation Tips
+        "A": 10,   # Section
+        "B": 10,   # Subpart
+        "C": 25,   # Issue
+        "D": 50,   # Existing Language
+        "E": 40,   # Customer Issues
+        "F": 45,   # Customer Edits
+        "G": 40,   # Provider Issues
+        "H": 45,   # Provider Edits
+        "I": 35,   # Preferred Position
+        "J": 50,   # Preferred Language
+        "K": 45,   # Fallback Positions
+        "L": 40,   # Don't Accept
+        "M": 10,   # Risk
+        "N": 12,   # Approval
+        "O": 45,   # Negotiation Tips
     })
 
 
 def create_definitions_sheet(wb: Workbook, playbook_data: dict) -> None:
-    """Create the Definitions sheet."""
+    """Create the Definitions sheet with detailed term analysis."""
     ws = wb.create_sheet("Definitions")
 
     # Headers
-    headers = ["Term", "Definition", "Importance/Notes"]
+    headers = [
+        "Term",
+        "Definition",
+        "Why It Matters",
+        "Customer Considerations",
+        "Provider Considerations",
+        "Suggested Modifications"
+    ]
+
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
         cell.font = HEADER_FONT
@@ -280,15 +361,20 @@ def create_definitions_sheet(wb: Workbook, playbook_data: dict) -> None:
         ws.cell(row=row_idx, column=1, value=defn.get("term", ""))
         ws.cell(row=row_idx, column=2, value=defn.get("definition", ""))
         ws.cell(row=row_idx, column=3, value=defn.get("importance", ""))
+        ws.cell(row=row_idx, column=4, value=defn.get("customer_considerations", ""))
+        ws.cell(row=row_idx, column=5, value=defn.get("provider_considerations", ""))
+        ws.cell(row=row_idx, column=6, value=defn.get("suggested_modifications", ""))
 
-        for col in range(1, 4):
+        for col in range(1, 7):
             cell = ws.cell(row=row_idx, column=col)
             cell.alignment = WRAP_ALIGNMENT
             cell.border = THIN_BORDER
             if row_idx % 2 == 0:
                 cell.fill = PatternFill(start_color=COLORS["alt_row"], end_color=COLORS["alt_row"], fill_type="solid")
 
-    set_column_widths(ws, {"A": 30, "B": 60, "C": 40})
+        ws.row_dimensions[row_idx].height = 60
+
+    set_column_widths(ws, {"A": 25, "B": 50, "C": 35, "D": 35, "E": 35, "F": 40})
 
 
 def create_quick_reference_sheet(wb: Workbook, playbook_data: dict) -> None:
@@ -296,6 +382,7 @@ def create_quick_reference_sheet(wb: Workbook, playbook_data: dict) -> None:
     ws = wb.create_sheet("Quick Reference")
 
     quick_ref = playbook_data.get("quick_reference", {})
+    strategy = playbook_data.get("negotiation_strategy", {})
 
     # Title
     ws["A1"] = "QUICK REFERENCE GUIDE"
@@ -313,6 +400,7 @@ def create_quick_reference_sheet(wb: Workbook, playbook_data: dict) -> None:
 
     for item in quick_ref.get("deal_breakers", []):
         ws[f"A{row}"] = f"✗ {item}"
+        ws.merge_cells(f"A{row}:C{row}")
         row += 1
 
     row += 1
@@ -326,6 +414,7 @@ def create_quick_reference_sheet(wb: Workbook, playbook_data: dict) -> None:
 
     for item in quick_ref.get("high_priority_items", []):
         ws[f"A{row}"] = f"⚠ {item}"
+        ws.merge_cells(f"A{row}:C{row}")
         row += 1
 
     row += 1
@@ -339,21 +428,64 @@ def create_quick_reference_sheet(wb: Workbook, playbook_data: dict) -> None:
 
     for item in quick_ref.get("standard_acceptable_terms", []):
         ws[f"A{row}"] = f"✓ {item}"
+        ws.merge_cells(f"A{row}:C{row}")
         row += 1
 
     row += 1
 
-    # Common Negotiation Points
-    ws[f"A{row}"] = "COMMON NEGOTIATION POINTS"
+    # Recommended Negotiation Order
+    ws[f"A{row}"] = "RECOMMENDED ORDER OF NEGOTIATION"
     ws[f"A{row}"].font = SUBTITLE_FONT
     ws.merge_cells(f"A{row}:C{row}")
     row += 1
 
-    for item in quick_ref.get("common_negotiation_points", []):
-        ws[f"A{row}"] = f"• {item}"
+    for i, item in enumerate(quick_ref.get("recommended_order_of_negotiation", []), 1):
+        ws[f"A{row}"] = f"{i}. {item}"
+        ws.merge_cells(f"A{row}:C{row}")
         row += 1
 
-    set_column_widths(ws, {"A": 60, "B": 30, "C": 30})
+    row += 2
+
+    # Negotiation Strategy
+    ws[f"A{row}"] = "NEGOTIATION STRATEGY"
+    ws[f"A{row}"].font = SUBTITLE_FONT
+    ws.merge_cells(f"A{row}:C{row}")
+    row += 2
+
+    ws[f"A{row}"] = "Opening Position:"
+    ws[f"A{row}"].font = Font(bold=True)
+    ws[f"B{row}"] = strategy.get("opening_position", "")
+    ws.merge_cells(f"B{row}:C{row}")
+    row += 1
+
+    ws[f"A{row}"] = "Key Leverage Points:"
+    ws[f"A{row}"].font = Font(bold=True)
+    row += 1
+    for point in strategy.get("key_leverage_points", []):
+        ws[f"B{row}"] = f"• {point}"
+        ws.merge_cells(f"B{row}:C{row}")
+        row += 1
+
+    row += 1
+    ws[f"A{row}"] = "Potential Trade-offs:"
+    ws[f"A{row}"].font = Font(bold=True)
+    row += 1
+    for trade in strategy.get("potential_trade_offs", []):
+        ws[f"B{row}"] = f"• {trade}"
+        ws.merge_cells(f"B{row}:C{row}")
+        row += 1
+
+    row += 1
+    ws[f"A{row}"] = "Walk-Away Triggers:"
+    ws[f"A{row}"].font = Font(bold=True)
+    ws[f"A{row}"].fill = get_risk_fill("red")
+    row += 1
+    for trigger in strategy.get("walk_away_triggers", []):
+        ws[f"B{row}"] = f"✗ {trigger}"
+        ws.merge_cells(f"B{row}:C{row}")
+        row += 1
+
+    set_column_widths(ws, {"A": 25, "B": 50, "C": 30})
 
 
 def generate_playbook_excel(playbook_data: dict, output_path: str) -> str:
