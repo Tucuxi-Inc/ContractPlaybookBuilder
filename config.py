@@ -2,6 +2,10 @@
 Configuration settings for Contract Playbook Builder
 """
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file if it exists
+load_dotenv()
 
 # Server settings
 PORT = int(os.environ.get("PORT", 3005))
