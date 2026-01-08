@@ -1,0 +1,16 @@
+# Web framework
+flask==3.0.0
+flask-cors==4.0.0
+werkzeug==3.0.1
+
+# Document parsing
+pypdf2==3.0.1
+python-docx==1.1.0
+openpyxl==3.1.2
+
+# AI integration
+openai==1.6.1
+
+# Utilities
+python-dotenv==1.0.0
+uuid==1.30

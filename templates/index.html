@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contract Playbook Builder</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Contract Playbook Builder</h1>
+            <p class="subtitle">Generate professional negotiation playbooks from any agreement</p>
+        </header>
+
+        <main>
+            <!-- Upload Section -->
+            <section id="upload-section" class="card">
+                <h2>Upload Agreement</h2>
+                <p>Upload a PDF, Word, or Excel file containing your template agreement.</p>
+
+                <form id="upload-form" enctype="multipart/form-data">
+                    <div class="file-upload-wrapper">
+                        <div class="file-drop-zone" id="drop-zone">
+                            <div class="drop-zone-content">
+                                <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="17 8 12 3 7 8"/>
+                                    <line x1="12" y1="3" x2="12" y2="15"/>
+                                </svg>
+                                <p class="drop-text">Drag and drop your file here</p>
+                                <p class="drop-subtext">or</p>
+                                <label class="file-input-label">
+                                    <input type="file" id="file-input" name="file" accept=".pdf,.docx,.xlsx" required>
+                                    <span>Choose File</span>
+                                </label>
+                                <p class="file-types">Supported: PDF, DOCX, XLSX (max 50MB)</p>
+                            </div>
+                        </div>
+                        <div id="file-info" class="file-info hidden">
+                            <span class="file-name"></span>
+                            <button type="button" class="remove-file" onclick="removeFile()">×</button>
+                        </div>
+                    </div>
+
+                    <div class="options-section">
+                        <h3>Configuration Options</h3>
+
+                        <div class="form-group">
+                            <label for="agreement-type">Agreement Type</label>
+                            <select id="agreement-type" name="agreement_type">
+                                <option value="General Agreement">General Agreement</option>
+                                <option value="SaaS/Cloud Services Agreement">SaaS/Cloud Services Agreement</option>
+                                <option value="Master Services Agreement (MSA)">Master Services Agreement (MSA)</option>
+                                <option value="Software License Agreement">Software License Agreement</option>
+                                <option value="Non-Disclosure Agreement (NDA)">Non-Disclosure Agreement (NDA)</option>
+                                <option value="Professional Services Agreement">Professional Services Agreement</option>
+                                <option value="Consulting Agreement">Consulting Agreement</option>
+                                <option value="Data Processing Agreement (DPA)">Data Processing Agreement (DPA)</option>
+                                <option value="Vendor Agreement">Vendor Agreement</option>
+                                <option value="Partnership Agreement">Partnership Agreement</option>
+                                <option value="Employment Agreement">Employment Agreement</option>
+                                <option value="Lease Agreement">Lease Agreement</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="user-role">Your Role</label>
+                            <select id="user-role" name="user_role">
+                                <option value="Customer">Customer / Buyer</option>
+                                <option value="Provider">Provider / Vendor</option>
+                                <option value="Neutral">Neutral / Both Perspectives</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="risk-tolerance">Risk Tolerance</label>
+                            <select id="risk-tolerance" name="risk_tolerance">
+                                <option value="Low">Low (Conservative)</option>
+                                <option value="Moderate" selected>Moderate (Balanced)</option>
+                                <option value="High">High (Aggressive)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" id="generate-btn">
+                        Generate Playbook
+                    </button>
+                </form>
+            </section>
+
+            <!-- Progress Section -->
+            <section id="progress-section" class="card hidden">
+                <h2>Generating Playbook</h2>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <p class="progress-text" id="progress-text">Starting...</p>
+                    <p class="progress-percent" id="progress-percent">0%</p>
+                </div>
+                <p class="progress-note">This may take 1-5 minutes depending on document length.</p>
+            </section>
+
+            <!-- Result Section -->
+            <section id="result-section" class="card hidden">
+                <h2>Playbook Ready!</h2>
+                <div class="success-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M9 12l2 2 4-4"/>
+                    </svg>
+                </div>
+                <p>Your contract playbook has been generated successfully.</p>
+                <button class="btn btn-success" id="download-btn">
+                    Download Playbook (Excel)
+                </button>
+                <button class="btn btn-secondary" onclick="startOver()">
+                    Generate Another Playbook
+                </button>
+            </section>
+
+            <!-- Error Section -->
+            <section id="error-section" class="card hidden">
+                <h2>Error</h2>
+                <div class="error-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="15" y1="9" x2="9" y2="15"/>
+                        <line x1="9" y1="9" x2="15" y2="15"/>
+                    </svg>
+                </div>
+                <p class="error-message" id="error-message"></p>
+                <button class="btn btn-secondary" onclick="startOver()">
+                    Try Again
+                </button>
+            </section>
+        </main>
+
+        <footer>
+            <p>Contract Playbook Builder | Built with AI-powered analysis</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
