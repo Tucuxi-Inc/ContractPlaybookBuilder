@@ -1,6 +1,9 @@
 # Background Documents - contains example playbooks and agreements (not for distribution)
 BackgroundDocs/
 
+# Examples folder - local example files (not for distribution)
+Examples/
+
 # Python
 __pycache__/
 *.py[cod]

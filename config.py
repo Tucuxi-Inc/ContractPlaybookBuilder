@@ -4,7 +4,7 @@ Configuration settings for Contract Playbook Builder
 import os
 
 # Server settings
-PORT = int(os.environ.get("PORT", 8005))
+PORT = int(os.environ.get("PORT", 3005))
 DEBUG = os.environ.get("FLASK_DEBUG", "0") == "1"
 
 # File upload settings
