@@ -46,10 +46,10 @@ def upload_file():
             "error": f"File type not supported. Allowed types: {', '.join(config.ALLOWED_EXTENSIONS)}"
         }), 400
 
-    # Check for OpenAI API key
-    if not config.OPENAI_API_KEY:
+    # Check for API key (Anthropic or OpenAI)
+    if not config.ANTHROPIC_API_KEY and not config.OPENAI_API_KEY:
         return jsonify({
-            "error": "OpenAI API key not configured. Please set the OPENAI_API_KEY environment variable."
+            "error": "API key not configured. Please set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable."
         }), 500
 
     # Generate unique job ID

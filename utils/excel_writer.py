@@ -136,8 +136,10 @@ def create_overview_sheet(wb: Workbook, overview: dict):
 
 def create_topic_sheet(wb: Workbook, topic_name: str, clauses: list):
     """Create a sheet for a specific contract topic."""
-    # Truncate sheet name if too long (Excel limit is 31 chars)
-    sheet_name = topic_name[:31] if len(topic_name) > 31 else topic_name
+    # Sanitize sheet name - remove invalid characters and truncate
+    # Excel doesn't allow: / \ ? * [ ] :
+    sheet_name = topic_name.replace("/", "-").replace("\\", "-").replace("?", "").replace("*", "").replace("[", "").replace("]", "").replace(":", "-")
+    sheet_name = sheet_name[:31] if len(sheet_name) > 31 else sheet_name
     ws = wb.create_sheet(sheet_name)
 
     # Headers
