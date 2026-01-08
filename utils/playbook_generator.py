@@ -309,10 +309,24 @@ def analyze_contract_chunked(
     agreement_summary = None
     negotiation_strategy = None
 
+    # Status messages that rotate to show activity
+    status_messages = [
+        "Analyzing agreement structure...",
+        "Reviewing contract provisions...",
+        "Evaluating key terms...",
+        "Generating negotiation guidance...",
+        "Processing document sections...",
+        "Identifying risk areas...",
+        "Building playbook entries...",
+        "Analyzing contractual obligations...",
+    ]
+
     for idx, chunk in enumerate(chunks):
         if progress_callback:
             progress = int((idx + 1) / len(chunks) * 80)
-            progress_callback(progress, f"Analyzing section {idx + 1} of {len(chunks)}...")
+            # Rotate through status messages
+            message = status_messages[idx % len(status_messages)]
+            progress_callback(progress, message)
 
         chunk_result = analyze_contract(
             chunk,

@@ -13,14 +13,28 @@ const dropZone = document.getElementById('drop-zone');
 const fileInfo = document.getElementById('file-info');
 const generateBtn = document.getElementById('generate-btn');
 const downloadBtn = document.getElementById('download-btn');
-const progressFill = document.getElementById('progress-fill');
 const progressText = document.getElementById('progress-text');
-const progressPercent = document.getElementById('progress-percent');
+const progressSubstatus = document.getElementById('progress-substatus');
+const progressReassurance = document.getElementById('progress-reassurance');
 const errorMessage = document.getElementById('error-message');
 
 // State
 let currentJobId = null;
 let statusPollInterval = null;
+let reassuranceInterval = null;
+let reassuranceIndex = 0;
+
+// Reassurance messages that rotate while processing
+const reassuranceMessages = [
+    "Your playbook is being generated...",
+    "AI is reviewing the document...",
+    "Still processing — this takes a few minutes...",
+    "Building your negotiation guide...",
+    "Analyzing document structure...",
+    "Processing — thank you for your patience...",
+    "Creating comprehensive guidance...",
+    "Almost there — finalizing analysis...",
+];
 
 // File Upload Handling
 fileInput.addEventListener('change', handleFileSelect);
@@ -107,16 +121,18 @@ uploadForm.addEventListener('submit', async (e) => {
 
         // Show progress section
         showSection('progress');
-        updateProgress(5, 'File uploaded. Starting analysis...');
+        updateProgress(5, 'Starting analysis...');
+        startReassuranceRotation();
 
         // Start processing in background (don't await - it takes minutes)
         fetch(`/api/process/${currentJobId}`, {
             method: 'POST'
         }).then(response => response.json()).then(processData => {
-            // Processing complete - stop polling and show result
+            // Processing complete - stop polling and reassurance
             if (statusPollInterval) {
                 clearInterval(statusPollInterval);
             }
+            stopReassuranceRotation();
             if (processData.status === 'completed') {
                 showSection('result');
                 downloadBtn.onclick = () => downloadPlaybook(currentJobId);
@@ -127,6 +143,7 @@ uploadForm.addEventListener('submit', async (e) => {
             if (statusPollInterval) {
                 clearInterval(statusPollInterval);
             }
+            stopReassuranceRotation();
             showError(error.message || 'Processing failed');
         });
 
@@ -143,9 +160,35 @@ uploadForm.addEventListener('submit', async (e) => {
 
 // Progress Updates
 function updateProgress(percent, message) {
-    progressFill.style.width = `${percent}%`;
-    progressPercent.textContent = `${percent}%`;
     progressText.textContent = message;
+
+    // Update substatus based on progress
+    if (percent < 20) {
+        progressSubstatus.textContent = "Parsing document and preparing for analysis";
+    } else if (percent < 50) {
+        progressSubstatus.textContent = "AI is reviewing contract provisions";
+    } else if (percent < 80) {
+        progressSubstatus.textContent = "Generating negotiation strategies";
+    } else {
+        progressSubstatus.textContent = "Finalizing your playbook";
+    }
+}
+
+function startReassuranceRotation() {
+    // Rotate reassurance messages every 8 seconds
+    reassuranceInterval = setInterval(() => {
+        reassuranceIndex = (reassuranceIndex + 1) % reassuranceMessages.length;
+        if (progressReassurance) {
+            progressReassurance.textContent = reassuranceMessages[reassuranceIndex];
+        }
+    }, 8000);
+}
+
+function stopReassuranceRotation() {
+    if (reassuranceInterval) {
+        clearInterval(reassuranceInterval);
+        reassuranceInterval = null;
+    }
 }
 
 function startPollingStatus(jobId) {
@@ -206,6 +249,7 @@ function showError(message) {
     if (statusPollInterval) {
         clearInterval(statusPollInterval);
     }
+    stopReassuranceRotation();
 }
 
 function startOver() {
@@ -213,11 +257,13 @@ function startOver() {
     if (statusPollInterval) {
         clearInterval(statusPollInterval);
     }
+    stopReassuranceRotation();
+    reassuranceIndex = 0;
 
     // Reset form
     uploadForm.reset();
     removeFile();
-    updateProgress(0, 'Starting...');
+    updateProgress(0, 'Starting analysis...');
 
     showSection('upload');
 }

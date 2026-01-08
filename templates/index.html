@@ -93,13 +93,18 @@
             <section id="progress-section" class="card hidden">
                 <h2>Generating Playbook</h2>
                 <div class="progress-container">
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progress-fill"></div>
+                    <div class="spinner" id="spinner">
+                        <svg viewBox="0 0 50 50">
+                            <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="80, 200" stroke-dashoffset="0">
+                                <animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1.5s" repeatCount="indefinite"/>
+                            </circle>
+                        </svg>
                     </div>
-                    <p class="progress-text" id="progress-text">Starting...</p>
-                    <p class="progress-percent" id="progress-percent">0%</p>
+                    <p class="progress-status" id="progress-text">Starting analysis...</p>
+                    <p class="progress-substatus" id="progress-substatus">Preparing document for AI processing</p>
                 </div>
-                <p class="progress-note">This may take 1-5 minutes depending on document length.</p>
+                <p class="progress-note">This typically takes 2-5 minutes depending on document length.</p>
+                <p class="progress-reassurance" id="progress-reassurance">Your playbook is being generated...</p>
             </section>
 
             <!-- Result Section -->

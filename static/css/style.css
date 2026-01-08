@@ -274,42 +274,48 @@ header h1 {
 /* Progress Section */
 .progress-container {
     text-align: center;
-    padding: 1rem 0;
+    padding: 2rem 0;
 }
 
-.progress-bar {
-    width: 100%;
-    height: 12px;
-    background-color: var(--bg-color);
-    border-radius: 6px;
-    overflow: hidden;
-    margin-bottom: 1rem;
-}
-
-.progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--primary-color), #3b82f6);
-    border-radius: 6px;
-    width: 0%;
-    transition: width 0.3s ease;
-}
-
-.progress-text {
-    color: var(--text-color);
-    font-weight: 500;
-    margin-bottom: 0.25rem;
-}
-
-.progress-percent {
+.spinner {
+    width: 60px;
+    height: 60px;
+    margin: 0 auto 1.5rem;
     color: var(--primary-color);
-    font-weight: 700;
-    font-size: 1.5rem;
+}
+
+.spinner svg {
+    width: 100%;
+    height: 100%;
+}
+
+.progress-status {
+    color: var(--text-color);
+    font-weight: 600;
+    font-size: 1.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.progress-substatus {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    margin-bottom: 0.25rem;
 }
 
 .progress-note {
     color: var(--text-muted);
     font-size: 0.875rem;
-    margin-top: 1rem;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.progress-reassurance {
+    color: var(--primary-color);
+    font-size: 0.875rem;
+    font-style: italic;
+    margin-top: 0.75rem;
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 /* Result Section */
