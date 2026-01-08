@@ -124,31 +124,42 @@ uploadForm.addEventListener('submit', async (e) => {
         updateProgress(5, 'Starting analysis...');
         startReassuranceRotation();
 
+        // Start polling for status updates - this is the primary completion detection
+        startPollingStatus(currentJobId);
+
         // Start processing in background (don't await - it takes minutes)
+        // The polling will detect completion, but we also handle it here as backup
         fetch(`/api/process/${currentJobId}`, {
             method: 'POST'
         }).then(response => response.json()).then(processData => {
-            // Processing complete - stop polling and reassurance
-            if (statusPollInterval) {
-                clearInterval(statusPollInterval);
-            }
-            stopReassuranceRotation();
+            // Processing complete - the polling should have already detected this
+            // but handle here as backup in case polling missed it
             if (processData.status === 'completed') {
+                if (statusPollInterval) {
+                    clearInterval(statusPollInterval);
+                }
+                stopReassuranceRotation();
                 showSection('result');
                 downloadBtn.onclick = () => downloadPlaybook(currentJobId);
             } else if (processData.status === 'error') {
+                if (statusPollInterval) {
+                    clearInterval(statusPollInterval);
+                }
+                stopReassuranceRotation();
                 showError(processData.error || 'Processing failed');
             }
+            // If neither completed nor error, let polling continue to handle it
         }).catch(error => {
-            if (statusPollInterval) {
-                clearInterval(statusPollInterval);
+            // Only show error if we're still in processing state
+            // (polling might have already handled completion)
+            if (progressSection && !progressSection.classList.contains('hidden')) {
+                if (statusPollInterval) {
+                    clearInterval(statusPollInterval);
+                }
+                stopReassuranceRotation();
+                showError(error.message || 'Processing failed');
             }
-            stopReassuranceRotation();
-            showError(error.message || 'Processing failed');
         });
-
-        // Start polling for status updates while processing
-        startPollingStatus(currentJobId);
 
     } catch (error) {
         showError(error.message);
