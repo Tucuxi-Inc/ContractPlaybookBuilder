@@ -109,19 +109,29 @@ uploadForm.addEventListener('submit', async (e) => {
         showSection('progress');
         updateProgress(5, 'File uploaded. Starting analysis...');
 
-        // Start processing
-        const processResponse = await fetch(`/api/process/${currentJobId}`, {
+        // Start processing in background (don't await - it takes minutes)
+        fetch(`/api/process/${currentJobId}`, {
             method: 'POST'
+        }).then(response => response.json()).then(processData => {
+            // Processing complete - stop polling and show result
+            if (statusPollInterval) {
+                clearInterval(statusPollInterval);
+            }
+            if (processData.status === 'completed') {
+                showSection('result');
+                downloadBtn.onclick = () => downloadPlaybook(currentJobId);
+            } else if (processData.status === 'error') {
+                showError(processData.error || 'Processing failed');
+            }
+        }).catch(error => {
+            if (statusPollInterval) {
+                clearInterval(statusPollInterval);
+            }
+            showError(error.message || 'Processing failed');
         });
 
-        const processData = await processResponse.json();
-
-        if (processData.status === 'completed') {
-            showSection('result');
-            downloadBtn.onclick = () => downloadPlaybook(currentJobId);
-        } else if (processData.status === 'error') {
-            throw new Error(processData.error || 'Processing failed');
-        }
+        // Start polling for status updates while processing
+        startPollingStatus(currentJobId);
 
     } catch (error) {
         showError(error.message);
