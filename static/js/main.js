@@ -286,7 +286,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const data = await response.json();
 
         if (!data.api_key_configured) {
-            showError('OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable and restart the server.');
+            showError('API key is not configured. Please set the ANTHROPIC_API_KEY (or OPENAI_API_KEY) environment variable and restart the server.');
         }
     } catch (error) {
         console.log('Health check failed:', error);

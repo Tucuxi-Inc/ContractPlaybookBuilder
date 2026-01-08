@@ -203,9 +203,12 @@ def download_file(job_id):
 @app.route("/api/health")
 def health_check():
     """Health check endpoint."""
+    # Check for either Anthropic or OpenAI API key
+    api_configured = bool(config.ANTHROPIC_API_KEY) or bool(config.OPENAI_API_KEY)
     return jsonify({
         "status": "healthy",
-        "api_key_configured": bool(config.OPENAI_API_KEY)
+        "api_key_configured": api_configured,
+        "provider": "anthropic" if config.ANTHROPIC_API_KEY else "openai"
     })
 
 
@@ -214,11 +217,18 @@ if __name__ == "__main__":
     print("Contract Playbook Builder")
     print(f"{'='*60}")
     print(f"Starting server on http://localhost:{config.PORT}")
-    print(f"OpenAI API Key: {'Configured' if config.OPENAI_API_KEY else 'NOT CONFIGURED'}")
+
+    if config.ANTHROPIC_API_KEY:
+        print(f"AI Provider: Anthropic Claude ({config.ANTHROPIC_MODEL})")
+    elif config.OPENAI_API_KEY:
+        print(f"AI Provider: OpenAI ({config.OPENAI_MODEL})")
+    else:
+        print("AI Provider: NOT CONFIGURED")
     print(f"{'='*60}\n")
 
-    if not config.OPENAI_API_KEY:
-        print("WARNING: OpenAI API key not set!")
-        print("Set it with: export OPENAI_API_KEY='your-key-here'\n")
+    if not config.ANTHROPIC_API_KEY and not config.OPENAI_API_KEY:
+        print("WARNING: No API key configured!")
+        print("Set with: export ANTHROPIC_API_KEY='your-key-here'")
+        print("Or:       export OPENAI_API_KEY='your-key-here'\n")
 
     app.run(host="0.0.0.0", port=config.PORT, debug=config.DEBUG)

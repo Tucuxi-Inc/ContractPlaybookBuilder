@@ -1,276 +1,247 @@
 """
-AI-powered playbook generation using OpenAI GPT-4.
+AI-powered playbook generation using Claude API.
 
 This module generates comprehensive contract playbooks with detailed analysis
-matching professional legal playbook standards.
+matching professional legal playbook standards, organized by contract topic.
 """
 import json
-import os
-from openai import OpenAI
+import re
+from anthropic import Anthropic
 import config
 
 
-def get_openai_client():
-    """Get OpenAI client with API key from config."""
-    api_key = config.OPENAI_API_KEY
+def get_anthropic_client():
+    """Get Anthropic client with API key from config."""
+    api_key = config.ANTHROPIC_API_KEY
     if not api_key:
         raise ValueError(
-            "OpenAI API key not found. Please set the OPENAI_API_KEY environment variable."
+            "Anthropic API key not found. Please set the ANTHROPIC_API_KEY environment variable."
         )
-    return OpenAI(api_key=api_key)
+    return Anthropic(api_key=api_key)
 
 
-SYSTEM_PROMPT = """You are an expert contract attorney and negotiation strategist with 20+ years of experience creating comprehensive contract playbooks for Fortune 500 companies. Your playbooks are known for their exceptional depth, practical guidance, and actionable negotiation strategies.
-
-Your role is to analyze contract text and generate EXTREMELY detailed playbook entries that serve as the definitive negotiation guide for legal teams and business professionals.
-
-CRITICAL REQUIREMENTS FOR EACH CLAUSE ANALYSIS:
-
-1. **Exhaustive Issue Identification**: Identify EVERY significant clause, term, and provision. Don't summarize - analyze each one separately.
-
-2. **Full Contract Language**: Quote the EXACT language from the contract. Do not paraphrase or summarize the original text.
-
-3. **Deep Business Context**: Explain in detail WHY this clause matters from a business perspective, including:
-   - Financial implications
-   - Operational impacts
-   - Strategic considerations
-   - Industry-specific concerns
-
-4. **Comprehensive Stakeholder Analysis**: For BOTH Customer and Provider perspectives, provide:
-   - Multiple bullet-pointed concerns (at least 3-5 per perspective)
-   - Specific objectives they want to achieve
-   - Real-world scenarios where this matters
-
-5. **Actionable Edit Suggestions**: Provide SPECIFIC, ready-to-use contract language modifications:
-   - Not vague suggestions but actual redline-ready text
-   - Multiple alternative approaches
-   - Explain when each edit is appropriate
-
-6. **Nuanced Risk Assessment**: Go beyond Red/Yellow/Green to explain:
-   - Why this risk level applies
-   - What could go wrong
-   - How to mitigate the risk
-
-7. **Practical Negotiation Guidance**: Include:
-   - Specific talking points
-   - Common counterarguments and responses
-   - Leverage points and trade-offs
-   - Escalation triggers
-
-Your output must be comprehensive enough that a junior attorney or business professional can negotiate this entire agreement using only your playbook."""
+# Contract topic categories for organizing the playbook
+CONTRACT_TOPICS = [
+    "Definitions",
+    "Solution/Services",
+    "Licenses & Restrictions",
+    "Proprietary Rights/IP",
+    "Financial Terms",
+    "Confidentiality",
+    "Data Security & Privacy",
+    "Warranties",
+    "Indemnification",
+    "Limitation of Liability",
+    "Term & Termination",
+    "General Provisions",
+    "Exhibits & Schedules"
+]
 
 
-ANALYSIS_PROMPT = """Analyze the following contract text and create an EXTREMELY COMPREHENSIVE playbook. This must be production-ready for actual contract negotiations.
+SYSTEM_PROMPT = """You are an expert contract attorney with 25+ years of experience creating comprehensive contract playbooks for Fortune 500 companies. You analyze contracts with extraordinary depth and practical insight.
 
-CONTRACT TEXT:
-{contract_text}
+Your analysis must be:
+1. THOROUGH - Every significant clause gets detailed treatment
+2. PRACTICAL - Real negotiation guidance, not academic analysis
+3. BALANCED - Both customer and provider perspectives
+4. ACTIONABLE - Ready-to-use fallback language and hard limits
 
-USER CONTEXT:
-- Agreement Type: {agreement_type}
-- User's Role: {user_role} (analyzing from this perspective but providing both sides)
-- Risk Tolerance: {risk_tolerance}
-
-CRITICAL REQUIREMENTS FOR THOROUGHNESS:
-
-1. **VOLUME**: For a typical 10-page agreement, generate 50-100+ distinct entries. Each section should have MULTIPLE items.
-
-2. **GRANULARITY**: Break down EVERY section into its component parts:
-   - Section 8.2(a) first part → one item
-   - Section 8.2(a) second part → another item
-   - Section 8.2(b) → another item
-   - Missing clause that should be added → mark as "new" in subpart
-
-3. **SUGGESTED ADDITIONS**: Include items for clauses that SHOULD exist but DON'T. Mark these with subpart="new".
-   - Example: If no data deletion clause exists, add an entry suggesting one
-
-4. **FULL COVERAGE**: Every numbered section, subsection, and paragraph needs analysis. Do not skip any.
-
-Provide your analysis in the following JSON format:
-
-{{
-    "agreement_summary": {{
-        "title": "Full agreement title",
-        "agreement_type": "Type of agreement (SaaS, MSA, NDA, etc.)",
-        "parties": "Detailed description of the parties and their roles",
-        "purpose": "Comprehensive description of what this agreement governs",
-        "key_dates": "All dates, terms, renewal periods mentioned",
-        "governing_law": "Jurisdiction and governing law if specified",
-        "overall_risk_level": "High/Medium/Low with explanation",
-        "critical_issues_count": number,
-        "executive_summary": "2-3 paragraph summary of the key negotiation points and overall assessment"
-    }},
-    "clauses": [
-        {{
-            "section_reference": "Exact section number (e.g., '2.1', '3.4(a)', 'Schedule A')",
-            "subpart": "Subsection if applicable (e.g., '(a)', '(ii)', 'first part', 'second part', or 'new' for suggested additions)",
-            "clause_title": "Descriptive name of the specific issue being addressed",
-            "original_language": "EXACT text from the contract for this specific subpart. Quote the FULL relevant language, not a summary. For 'new' items, provide the suggested new language to add.",
-            "customer_issues": [
-                "• First specific concern customers have with this clause",
-                "• Second concern - be detailed and practical",
-                "• Third concern - include real-world scenarios",
-                "• Fourth concern if applicable",
-                "• Fifth concern if applicable"
-            ],
-            "customer_edits_to_consider": [
-                "• Specific edit #1: '[Exact suggested contract language to add, modify, or delete]' - Explanation of when to use this edit",
-                "• Specific edit #2: '[Alternative language option]' - Explanation of the different approach",
-                "• Specific edit #3: If the clause is acceptable as-is, suggest protections to add elsewhere"
-            ],
-            "provider_issues": [
-                "• First specific concern providers/vendors have",
-                "• Second concern from the provider perspective",
-                "• Third concern - why they want it this way",
-                "• Fourth concern if applicable"
-            ],
-            "provider_edits_to_consider": [
-                "• Specific edit #1: '[Exact language providers would want]' - Why this protects their interests",
-                "• Specific edit #2: '[Alternative approach]' - Trade-offs involved"
-            ],
-            "preferred_position": {{
-                "description": "Detailed description of the ideal outcome for the {user_role}",
-                "sample_language": "Complete, ready-to-use contract language for the preferred position. This should be full sentences/paragraphs that could be inserted directly into the contract."
-            }},
-            "fallback_positions": [
-                {{
-                    "position_number": 1,
-                    "description": "First fallback - what to accept if preferred fails",
-                    "sample_language": "Complete fallback language ready for use",
-                    "conditions": "Specific circumstances when this fallback is appropriate",
-                    "trade_offs": "What you're giving up with this fallback"
-                }},
-                {{
-                    "position_number": 2,
-                    "description": "Second fallback - further compromise",
-                    "sample_language": "Language for this fallback position",
-                    "conditions": "When to use this",
-                    "trade_offs": "What you're giving up"
-                }}
-            ],
-            "positions_to_avoid": [
-                {{
-                    "description": "Specific position that should never be accepted",
-                    "reason": "Detailed explanation of why this is problematic - include specific risks and consequences",
-                    "red_flag_language": "Specific phrases or terms that indicate this bad position"
-                }}
-            ],
-            "risk_level": "Red/Yellow/Green",
-            "risk_explanation": "Detailed explanation of why this risk level was assigned. What could go wrong? What's the potential exposure?",
-            "approval_required": "None/Legal/Manager/Executive/Board - with explanation of why this level",
-            "negotiation_tips": [
-                "• Specific tip #1 for negotiating this clause",
-                "• Tip #2 - include talking points",
-                "• Tip #3 - common counterarguments and how to respond",
-                "• Tip #4 - leverage points or trade-offs to consider"
-            ],
-            "related_clauses": "Other sections in the agreement that interact with or affect this clause"
-        }}
-    ],
-    "definitions": [
-        {{
-            "term": "Defined term exactly as it appears",
-            "definition": "Full definition from the contract",
-            "importance": "Why this definition matters and how it affects other provisions",
-            "customer_considerations": "How customers should think about this definition",
-            "provider_considerations": "How providers typically use this definition",
-            "suggested_modifications": "Any changes to consider for this definition"
-        }}
-    ],
-    "quick_reference": {{
-        "deal_breakers": [
-            "Specific clause/issue that is a deal breaker with brief explanation"
-        ],
-        "high_priority_items": [
-            "Items requiring executive or legal approval"
-        ],
-        "standard_acceptable_terms": [
-            "Terms that are generally acceptable as-is"
-        ],
-        "common_negotiation_points": [
-            "Clauses that are typically negotiated in this type of agreement"
-        ],
-        "recommended_order_of_negotiation": [
-            "Suggested sequence for addressing issues based on importance and dependencies"
-        ]
-    }},
-    "negotiation_strategy": {{
-        "opening_position": "Recommended approach for starting negotiations",
-        "key_leverage_points": ["Points where {user_role} has negotiating leverage"],
-        "potential_trade_offs": ["Issues that could be traded against each other"],
-        "walk_away_triggers": ["Specific terms that should trigger walking away from the deal"],
-        "timing_considerations": "Any time-sensitive aspects to consider"
-    }}
-}}
-
-IMPORTANT GUIDELINES:
-1. QUOTE the actual contract language - do not summarize or paraphrase
-2. Provide MULTIPLE bullet points for each issues section (minimum 3-5)
-3. Include SPECIFIC, ready-to-use contract language in all edit suggestions
-4. Be THOROUGH - analyze every significant provision
-5. Make it ACTIONABLE - a negotiator should be able to use this directly
-6. Consider BOTH parties' perspectives comprehensively
-7. Include PRACTICAL negotiation tactics, not just legal analysis
-
-The output must be valid JSON. Be extremely thorough - this playbook should be comprehensive enough to serve as the sole reference document for negotiating this agreement."""
+For each clause you analyze, provide:
+- The exact contract language (quoted)
+- Why this clause exists and matters (business context)
+- What customers typically want to change
+- What providers need to protect
+- Specific acceptable modifications
+- Ready-to-use fallback language
+- Clear "do not accept" boundaries"""
 
 
-def analyze_contract(
+def analyze_contract_with_claude(
     contract_text: str,
     agreement_type: str = "General Agreement",
     user_role: str = "Customer",
-    risk_tolerance: str = "Moderate"
+    risk_tolerance: str = "Moderate",
+    progress_callback=None
 ) -> dict:
     """
-    Analyze contract text and generate comprehensive playbook content.
+    Analyze contract using Claude API with topic-based organization.
 
-    Args:
-        contract_text: The extracted text from the uploaded agreement
-        agreement_type: Type of agreement (SaaS, Services, NDA, etc.)
-        user_role: Whether user is Customer/Buyer or Provider/Vendor
-        risk_tolerance: Low, Moderate, or High risk tolerance
-
-    Returns:
-        dict containing the full playbook analysis
+    Returns a structured playbook matching the format of professional legal playbooks.
     """
-    client = get_openai_client()
+    client = get_anthropic_client()
 
-    # Truncate very long contracts to fit within context limits
-    max_chars = 100000  # Approximately 25k tokens
-    if len(contract_text) > max_chars:
-        contract_text = contract_text[:max_chars] + "\n\n[Document truncated due to length...]"
+    if progress_callback:
+        progress_callback(5, "Preparing contract analysis...")
 
-    prompt = ANALYSIS_PROMPT.format(
-        contract_text=contract_text,
-        agreement_type=agreement_type,
-        user_role=user_role,
-        risk_tolerance=risk_tolerance
-    )
+    # First, get the overview and identify key sections
+    overview_prompt = f"""Analyze this contract and provide a comprehensive overview.
 
-    response = client.chat.completions.create(
-        model=config.OPENAI_MODEL,
+CONTRACT TEXT:
+{contract_text[:50000]}
+
+CONTEXT:
+- Agreement Type: {agreement_type}
+- Analyzing from: {user_role} perspective
+- Risk Tolerance: {risk_tolerance}
+
+Provide your analysis as JSON with this structure:
+{{
+    "title": "Full title of the agreement",
+    "parties": "Description of the parties",
+    "effective_date": "If specified",
+    "governing_law": "Jurisdiction if specified",
+    "key_principles": [
+        "Key principle 1 about this agreement",
+        "Key principle 2",
+        "Key principle 3",
+        "Key principle 4"
+    ],
+    "executive_summary": "2-3 paragraph overview of the agreement and key negotiation considerations",
+    "sections_found": ["List of major sections/topics found in the contract"]
+}}"""
+
+    if progress_callback:
+        progress_callback(10, "Analyzing agreement structure...")
+
+    overview_response = client.messages.create(
+        model=config.ANTHROPIC_MODEL,
+        max_tokens=4096,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": overview_prompt}
         ],
-        temperature=0.3,  # Lower temperature for more consistent output
-        max_tokens=16000,
-        response_format={"type": "json_object"}
+        system=SYSTEM_PROMPT
     )
-
-    result_text = response.choices[0].message.content
 
     try:
-        playbook_data = json.loads(result_text)
-    except json.JSONDecodeError as e:
-        # Try to extract JSON from the response
-        import re
-        json_match = re.search(r'\{[\s\S]*\}', result_text)
+        overview_text = overview_response.content[0].text
+        # Extract JSON from response
+        json_match = re.search(r'\{[\s\S]*\}', overview_text)
         if json_match:
-            playbook_data = json.loads(json_match.group())
+            overview = json.loads(json_match.group())
         else:
-            raise ValueError(f"Failed to parse AI response as JSON: {e}")
+            overview = {"title": agreement_type, "key_principles": [], "executive_summary": ""}
+    except (json.JSONDecodeError, IndexError):
+        overview = {"title": agreement_type, "key_principles": [], "executive_summary": ""}
 
-    return playbook_data
+    # Analyze each topic area
+    all_topics = {}
+    quick_reference = []
+
+    topics_to_analyze = [
+        ("Definitions", "definitions, defined terms, and interpretation provisions"),
+        ("Solution/Services", "the solution, services, platform, software, or product being provided"),
+        ("Licenses & Restrictions", "license grants, usage rights, restrictions, and permitted uses"),
+        ("Proprietary Rights/IP", "intellectual property, ownership, proprietary rights, and IP assignments"),
+        ("Financial Terms", "fees, payment terms, pricing, invoicing, and financial obligations"),
+        ("Confidentiality", "confidentiality, non-disclosure, and information protection"),
+        ("Data Security & Privacy", "data protection, security, privacy, data processing, and compliance"),
+        ("Warranties", "representations, warranties, disclaimers, and guarantees"),
+        ("Indemnification", "indemnification, defense, and hold harmless provisions"),
+        ("Limitation of Liability", "liability caps, exclusions, consequential damages, and limitations"),
+        ("Term & Termination", "term, renewal, termination rights, and effects of termination"),
+        ("General Provisions", "miscellaneous provisions like assignment, notices, force majeure, amendments"),
+        ("Exhibits & Schedules", "exhibits, schedules, appendices, and attachments")
+    ]
+
+    for idx, (topic_name, topic_description) in enumerate(topics_to_analyze):
+        if progress_callback:
+            progress = 15 + int((idx / len(topics_to_analyze)) * 70)
+            progress_callback(progress, f"Analyzing {topic_name}...")
+
+        topic_prompt = f"""Analyze this contract focusing specifically on {topic_description}.
+
+CONTRACT TEXT:
+{contract_text[:80000]}
+
+CONTEXT:
+- Agreement Type: {agreement_type}
+- Analyzing from: {user_role} perspective
+- Risk Tolerance: {risk_tolerance}
+
+For each relevant clause or provision related to {topic_name}, provide detailed analysis.
+
+Return JSON with this structure:
+{{
+    "topic": "{topic_name}",
+    "clauses": [
+        {{
+            "section": "Section number (e.g., '2.1', 'III', 'Schedule A')",
+            "subsection": "Subsection if applicable",
+            "issue": "Brief title describing the specific issue",
+            "current_language": "EXACT quoted text from the contract",
+            "purpose_rationale": "Why this clause exists and its business purpose",
+            "customer_concerns": "• Bullet point 1\\n• Bullet point 2\\n• Bullet point 3",
+            "customer_edits_to_watch": "• Edit 1\\n• Edit 2\\n• Edit 3",
+            "provider_position": "The provider's perspective and what they need to protect",
+            "acceptable_modifications": "• Modification 1\\n• Modification 2",
+            "fallback_language": "Ready-to-use alternative contract language",
+            "do_not_accept": "• Hard limit 1\\n• Hard limit 2",
+            "notes": "Additional considerations or context"
+        }}
+    ],
+    "hard_limits": [
+        {{
+            "issue": "Brief description",
+            "limit": "What requires executive approval"
+        }}
+    ]
+}}
+
+Be thorough - analyze EVERY clause related to {topic_name}. Include both explicit provisions AND important omissions that should be addressed."""
+
+        try:
+            topic_response = client.messages.create(
+                model=config.ANTHROPIC_MODEL,
+                max_tokens=8192,
+                messages=[
+                    {"role": "user", "content": topic_prompt}
+                ],
+                system=SYSTEM_PROMPT
+            )
+
+            topic_text = topic_response.content[0].text
+            json_match = re.search(r'\{[\s\S]*\}', topic_text)
+            if json_match:
+                topic_data = json.loads(json_match.group())
+                if topic_data.get("clauses"):
+                    all_topics[topic_name] = topic_data["clauses"]
+                if topic_data.get("hard_limits"):
+                    quick_reference.extend(topic_data["hard_limits"])
+        except Exception as e:
+            print(f"Error analyzing {topic_name}: {e}")
+            continue
+
+    if progress_callback:
+        progress_callback(90, "Compiling playbook...")
+
+    # Build the final playbook structure
+    playbook = {
+        "overview": {
+            "title": overview.get("title", agreement_type),
+            "agreement_type": agreement_type,
+            "perspective": user_role,
+            "parties": overview.get("parties", ""),
+            "effective_date": overview.get("effective_date", ""),
+            "governing_law": overview.get("governing_law", ""),
+            "key_principles": overview.get("key_principles", []),
+            "executive_summary": overview.get("executive_summary", ""),
+            "how_to_use": [
+                "Navigate to the relevant section tab based on the clause being negotiated",
+                "Review the 'Purpose/Rationale' to understand why the clause exists",
+                "Check 'Customer Concerns' or 'Provider Position' based on your role",
+                "Use 'Acceptable Modifications' for standard negotiation moves",
+                "Reference 'Fallback Language' when proposing alternatives",
+                "Never accept terms listed in 'Do Not Accept' without executive approval"
+            ]
+        },
+        "topics": all_topics,
+        "quick_reference": quick_reference
+    }
+
+    if progress_callback:
+        progress_callback(100, "Analysis complete")
+
+    return playbook
 
 
 def analyze_contract_chunked(
@@ -281,134 +252,13 @@ def analyze_contract_chunked(
     progress_callback=None
 ) -> dict:
     """
-    Analyze a long contract by processing it in chunks.
-
-    For very long documents, this splits the analysis into multiple API calls
-    and combines the results.
+    Main entry point - routes to Claude API.
+    Maintains backward compatibility with existing code.
     """
-    # Always use chunked approach for better progress tracking
-    # Smaller chunks = more frequent progress updates
-    chunk_size = 15000  # ~15k chars per chunk for granular progress
-
-    # For very short documents, use single analysis
-    if len(contract_text) < chunk_size:
-        if progress_callback:
-            progress_callback(20, "Analyzing contract with AI...")
-        result = analyze_contract(contract_text, agreement_type, user_role, risk_tolerance)
-        if progress_callback:
-            progress_callback(100, "Analysis complete")
-        return result
-
-    # For longer documents, chunk and combine
-    chunks = []
-    for i in range(0, len(contract_text), chunk_size):
-        chunks.append(contract_text[i:i + chunk_size])
-
-    all_clauses = []
-    all_definitions = []
-    agreement_summary = None
-    negotiation_strategy = None
-
-    # Status messages that rotate to show activity
-    status_messages = [
-        "Analyzing agreement structure...",
-        "Reviewing contract provisions...",
-        "Evaluating key terms...",
-        "Generating negotiation guidance...",
-        "Processing document sections...",
-        "Identifying risk areas...",
-        "Building playbook entries...",
-        "Analyzing contractual obligations...",
-    ]
-
-    for idx, chunk in enumerate(chunks):
-        if progress_callback:
-            progress = int((idx + 1) / len(chunks) * 80)
-            # Rotate through status messages
-            message = status_messages[idx % len(status_messages)]
-            progress_callback(progress, message)
-
-        chunk_result = analyze_contract(
-            chunk,
-            agreement_type,
-            user_role,
-            risk_tolerance
-        )
-
-        if "clauses" in chunk_result:
-            all_clauses.extend(chunk_result["clauses"])
-
-        if "definitions" in chunk_result:
-            all_definitions.extend(chunk_result["definitions"])
-
-        if not agreement_summary and "agreement_summary" in chunk_result:
-            agreement_summary = chunk_result["agreement_summary"]
-
-        if not negotiation_strategy and "negotiation_strategy" in chunk_result:
-            negotiation_strategy = chunk_result["negotiation_strategy"]
-
-    # Combine results
-    if progress_callback:
-        progress_callback(90, "Combining analysis...")
-
-    # Remove duplicate definitions
-    seen_terms = set()
-    unique_definitions = []
-    for defn in all_definitions:
-        term = defn.get("term", "").lower()
-        if term not in seen_terms:
-            seen_terms.add(term)
-            unique_definitions.append(defn)
-
-    # Generate quick reference from combined clauses
-    deal_breakers = []
-    high_priority = []
-    standard_terms = []
-
-    for clause in all_clauses:
-        risk = clause.get("risk_level", "").lower()
-        title = clause.get("clause_title", "")
-        section = clause.get("section_reference", "")
-        item = f"{title} (Section {section})" if section else title
-
-        if risk == "red":
-            deal_breakers.append(item)
-        elif risk == "yellow":
-            high_priority.append(item)
-        else:
-            standard_terms.append(item)
-
-    combined_result = {
-        "agreement_summary": agreement_summary or {
-            "title": "Contract Analysis",
-            "agreement_type": agreement_type,
-            "parties": "Not specified",
-            "purpose": "Contract playbook analysis",
-            "key_dates": "Not specified",
-            "governing_law": "Not specified",
-            "overall_risk_level": "Medium",
-            "critical_issues_count": len(deal_breakers),
-            "executive_summary": "Analysis completed. Review the clause-by-clause breakdown for detailed guidance."
-        },
-        "clauses": all_clauses,
-        "definitions": unique_definitions,
-        "quick_reference": {
-            "deal_breakers": deal_breakers[:15],
-            "high_priority_items": high_priority[:15],
-            "standard_acceptable_terms": standard_terms[:15],
-            "common_negotiation_points": [c.get("clause_title", "") for c in all_clauses[:10] if c.get("risk_level", "").lower() in ["red", "yellow"]],
-            "recommended_order_of_negotiation": [c.get("clause_title", "") for c in sorted(all_clauses, key=lambda x: 0 if x.get("risk_level", "").lower() == "red" else 1 if x.get("risk_level", "").lower() == "yellow" else 2)[:10]]
-        },
-        "negotiation_strategy": negotiation_strategy or {
-            "opening_position": "Start with highest-risk items to gauge counterparty flexibility",
-            "key_leverage_points": ["Review clause analysis for specific leverage points"],
-            "potential_trade_offs": ["See individual clause analyses for trade-off opportunities"],
-            "walk_away_triggers": deal_breakers[:5] if deal_breakers else ["No critical deal breakers identified"],
-            "timing_considerations": "Standard negotiation timeline applies"
-        }
-    }
-
-    if progress_callback:
-        progress_callback(100, "Analysis complete")
-
-    return combined_result
+    return analyze_contract_with_claude(
+        contract_text=contract_text,
+        agreement_type=agreement_type,
+        user_role=user_role,
+        risk_tolerance=risk_tolerance,
+        progress_callback=progress_callback
+    )
