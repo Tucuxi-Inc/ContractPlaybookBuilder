@@ -27,6 +27,107 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/config", methods=["GET"])
+def get_config():
+    """Return current provider/model config and available options."""
+    # Determine which key is configured (mask it)
+    provider = config.AI_PROVIDER
+    has_key = False
+    if provider == "anthropic":
+        has_key = bool(config.ANTHROPIC_API_KEY)
+        current_model = config.ANTHROPIC_MODEL
+    elif provider == "openai":
+        has_key = bool(config.OPENAI_API_KEY)
+        current_model = config.OPENAI_MODEL
+    elif provider == "google":
+        has_key = bool(config.GOOGLE_API_KEY)
+        current_model = config.GOOGLE_MODEL
+    else:
+        current_model = ""
+
+    return jsonify({
+        "provider": provider,
+        "model": current_model,
+        "has_key": has_key,
+        "providers": {
+            pid: {"name": p["name"], "models": p["models"]}
+            for pid, p in config.AVAILABLE_PROVIDERS.items()
+        }
+    })
+
+
+@app.route("/api/config", methods=["POST"])
+def save_config():
+    """Save provider, model, and API key to .env and reload config."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    provider = data.get("provider", "").strip()
+    model = data.get("model", "").strip()
+    api_key = data.get("api_key", "").strip()
+
+    if provider not in config.AVAILABLE_PROVIDERS:
+        return jsonify({"error": f"Invalid provider: {provider}"}), 400
+
+    provider_info = config.AVAILABLE_PROVIDERS[provider]
+
+    # Check if key is already configured for this provider
+    existing_key = getattr(config, provider_info["key_env"], "")
+    if not api_key and not existing_key:
+        return jsonify({"error": "API key is required"}), 400
+
+    valid_models = [m["id"] for m in provider_info["models"]]
+    if model and model not in valid_models:
+        return jsonify({"error": f"Invalid model: {model}"}), 400
+
+    if not model:
+        model = valid_models[0]
+
+    # Read existing .env or start fresh
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    env_lines = []
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            env_lines = f.readlines()
+
+    # Build a dict of keys to set
+    updates = {
+        "AI_PROVIDER": provider,
+        provider_info["model_env"]: model,
+    }
+    if api_key:
+        updates[provider_info["key_env"]] = api_key
+
+    # Update or append each key
+    for key, value in updates.items():
+        found = False
+        for i, line in enumerate(env_lines):
+            stripped = line.strip()
+            # Match both active and commented-out lines
+            if stripped.startswith(f"{key}=") or stripped.startswith(f"# {key}="):
+                env_lines[i] = f"{key}={value}\n"
+                found = True
+                break
+        if not found:
+            env_lines.append(f"{key}={value}\n")
+
+    with open(env_path, "w") as f:
+        f.writelines(env_lines)
+
+    # Also set in os.environ so reload picks them up
+    for key, value in updates.items():
+        os.environ[key] = value
+
+    config.reload_config()
+
+    return jsonify({
+        "status": "saved",
+        "provider": provider,
+        "model": model
+    })
+
+
 @app.route("/api/upload", methods=["POST"])
 def upload_file():
     """
@@ -46,10 +147,10 @@ def upload_file():
             "error": f"File type not supported. Allowed types: {', '.join(config.ALLOWED_EXTENSIONS)}"
         }), 400
 
-    # Check for API key (Anthropic or OpenAI)
-    if not config.ANTHROPIC_API_KEY and not config.OPENAI_API_KEY:
+    # Check for API key
+    if not config.ANTHROPIC_API_KEY and not config.OPENAI_API_KEY and not config.GOOGLE_API_KEY:
         return jsonify({
-            "error": "API key not configured. Please set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable."
+            "error": "API key not configured. Please configure your AI provider in Settings."
         }), 500
 
     # Generate unique job ID
@@ -203,12 +304,11 @@ def download_file(job_id):
 @app.route("/api/health")
 def health_check():
     """Health check endpoint."""
-    # Check for either Anthropic or OpenAI API key
-    api_configured = bool(config.ANTHROPIC_API_KEY) or bool(config.OPENAI_API_KEY)
+    api_configured = bool(config.ANTHROPIC_API_KEY) or bool(config.OPENAI_API_KEY) or bool(config.GOOGLE_API_KEY)
     return jsonify({
         "status": "healthy",
         "api_key_configured": api_configured,
-        "provider": "anthropic" if config.ANTHROPIC_API_KEY else "openai"
+        "provider": config.AI_PROVIDER
     })
 
 
@@ -218,17 +318,15 @@ if __name__ == "__main__":
     print(f"{'='*60}")
     print(f"Starting server on http://localhost:{config.PORT}")
 
-    if config.ANTHROPIC_API_KEY:
+    if config.AI_PROVIDER == "anthropic" and config.ANTHROPIC_API_KEY:
         print(f"AI Provider: Anthropic Claude ({config.ANTHROPIC_MODEL})")
-    elif config.OPENAI_API_KEY:
+    elif config.AI_PROVIDER == "openai" and config.OPENAI_API_KEY:
         print(f"AI Provider: OpenAI ({config.OPENAI_MODEL})")
+    elif config.AI_PROVIDER == "google" and config.GOOGLE_API_KEY:
+        print(f"AI Provider: Google Gemini ({config.GOOGLE_MODEL})")
     else:
         print("AI Provider: NOT CONFIGURED")
+        print("Open http://localhost:{} to configure via the setup screen.".format(config.PORT))
     print(f"{'='*60}\n")
-
-    if not config.ANTHROPIC_API_KEY and not config.OPENAI_API_KEY:
-        print("WARNING: No API key configured!")
-        print("Set with: export ANTHROPIC_API_KEY='your-key-here'")
-        print("Or:       export OPENAI_API_KEY='your-key-here'\n")
 
     app.run(host="0.0.0.0", port=config.PORT, debug=config.DEBUG)

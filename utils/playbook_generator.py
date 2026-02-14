@@ -1,12 +1,16 @@
 """
-AI-powered playbook generation using Claude API.
+AI-powered playbook generation using multiple LLM providers.
 
 This module generates comprehensive contract playbooks with detailed analysis
 matching professional legal playbook standards, organized by contract topic.
+
+Supported providers: Anthropic Claude, OpenAI GPT, Google Gemini.
 """
 import json
 import re
 from anthropic import Anthropic
+from openai import OpenAI
+from google import genai
 import config
 
 
@@ -18,6 +22,26 @@ def get_anthropic_client():
             "Anthropic API key not found. Please set the ANTHROPIC_API_KEY environment variable."
         )
     return Anthropic(api_key=api_key)
+
+
+def get_openai_client():
+    """Get OpenAI client with API key from config."""
+    api_key = config.OPENAI_API_KEY
+    if not api_key:
+        raise ValueError(
+            "OpenAI API key not found. Please set the OPENAI_API_KEY environment variable."
+        )
+    return OpenAI(api_key=api_key)
+
+
+def get_google_client():
+    """Get Google GenAI client with API key from config."""
+    api_key = config.GOOGLE_API_KEY
+    if not api_key:
+        raise ValueError(
+            "Google API key not found. Please set the GOOGLE_API_KEY environment variable."
+        )
+    return genai.Client(api_key=api_key)
 
 
 # Contract topic categories for organizing the playbook
@@ -56,25 +80,26 @@ For each clause you analyze, provide:
 - Clear "do not accept" boundaries"""
 
 
-def analyze_contract_with_claude(
-    contract_text: str,
-    agreement_type: str = "General Agreement",
-    user_role: str = "Customer",
-    risk_tolerance: str = "Moderate",
-    progress_callback=None
-) -> dict:
-    """
-    Analyze contract using Claude API with topic-based organization.
+TOPICS_TO_ANALYZE = [
+    ("Definitions", "definitions, defined terms, and interpretation provisions"),
+    ("Solution/Services", "the solution, services, platform, software, or product being provided"),
+    ("Licenses & Restrictions", "license grants, usage rights, restrictions, and permitted uses"),
+    ("Proprietary Rights/IP", "intellectual property, ownership, proprietary rights, and IP assignments"),
+    ("Financial Terms", "fees, payment terms, pricing, invoicing, and financial obligations"),
+    ("Confidentiality", "confidentiality, non-disclosure, and information protection"),
+    ("Data Security & Privacy", "data protection, security, privacy, data processing, and compliance"),
+    ("Warranties", "representations, warranties, disclaimers, and guarantees"),
+    ("Indemnification", "indemnification, defense, and hold harmless provisions"),
+    ("Limitation of Liability", "liability caps, exclusions, consequential damages, and limitations"),
+    ("Term & Termination", "term, renewal, termination rights, and effects of termination"),
+    ("General Provisions", "miscellaneous provisions like assignment, notices, force majeure, amendments"),
+    ("Exhibits & Schedules", "exhibits, schedules, appendices, and attachments")
+]
 
-    Returns a structured playbook matching the format of professional legal playbooks.
-    """
-    client = get_anthropic_client()
 
-    if progress_callback:
-        progress_callback(5, "Preparing contract analysis...")
-
-    # First, get the overview and identify key sections
-    overview_prompt = f"""Analyze this contract and provide a comprehensive overview.
+def _build_overview_prompt(contract_text, agreement_type, user_role, risk_tolerance):
+    """Build the overview analysis prompt."""
+    return f"""Analyze this contract and provide a comprehensive overview.
 
 CONTRACT TEXT:
 {contract_text[:50000]}
@@ -100,55 +125,10 @@ Provide your analysis as JSON with this structure:
     "sections_found": ["List of major sections/topics found in the contract"]
 }}"""
 
-    if progress_callback:
-        progress_callback(10, "Analyzing agreement structure...")
 
-    overview_response = client.messages.create(
-        model=config.ANTHROPIC_MODEL,
-        max_tokens=4096,
-        messages=[
-            {"role": "user", "content": overview_prompt}
-        ],
-        system=SYSTEM_PROMPT
-    )
-
-    try:
-        overview_text = overview_response.content[0].text
-        # Extract JSON from response
-        json_match = re.search(r'\{[\s\S]*\}', overview_text)
-        if json_match:
-            overview = json.loads(json_match.group())
-        else:
-            overview = {"title": agreement_type, "key_principles": [], "executive_summary": ""}
-    except (json.JSONDecodeError, IndexError):
-        overview = {"title": agreement_type, "key_principles": [], "executive_summary": ""}
-
-    # Analyze each topic area
-    all_topics = {}
-    quick_reference = []
-
-    topics_to_analyze = [
-        ("Definitions", "definitions, defined terms, and interpretation provisions"),
-        ("Solution/Services", "the solution, services, platform, software, or product being provided"),
-        ("Licenses & Restrictions", "license grants, usage rights, restrictions, and permitted uses"),
-        ("Proprietary Rights/IP", "intellectual property, ownership, proprietary rights, and IP assignments"),
-        ("Financial Terms", "fees, payment terms, pricing, invoicing, and financial obligations"),
-        ("Confidentiality", "confidentiality, non-disclosure, and information protection"),
-        ("Data Security & Privacy", "data protection, security, privacy, data processing, and compliance"),
-        ("Warranties", "representations, warranties, disclaimers, and guarantees"),
-        ("Indemnification", "indemnification, defense, and hold harmless provisions"),
-        ("Limitation of Liability", "liability caps, exclusions, consequential damages, and limitations"),
-        ("Term & Termination", "term, renewal, termination rights, and effects of termination"),
-        ("General Provisions", "miscellaneous provisions like assignment, notices, force majeure, amendments"),
-        ("Exhibits & Schedules", "exhibits, schedules, appendices, and attachments")
-    ]
-
-    for idx, (topic_name, topic_description) in enumerate(topics_to_analyze):
-        if progress_callback:
-            progress = 15 + int((idx / len(topics_to_analyze)) * 70)
-            progress_callback(progress, f"Analyzing {topic_name}...")
-
-        topic_prompt = f"""Analyze this contract focusing specifically on {topic_description}.
+def _build_topic_prompt(contract_text, topic_name, topic_description, agreement_type, user_role, risk_tolerance):
+    """Build the topic analysis prompt."""
+    return f"""Analyze this contract focusing specifically on {topic_description}.
 
 CONTRACT TEXT:
 {contract_text[:80000]}
@@ -189,20 +169,66 @@ Return JSON with this structure:
 
 Be thorough - analyze EVERY clause related to {topic_name}. Include both explicit provisions AND important omissions that should be addressed."""
 
+
+def _extract_json(text):
+    """Extract JSON object from LLM response text."""
+    json_match = re.search(r'\{[\s\S]*\}', text)
+    if json_match:
+        return json.loads(json_match.group())
+    return None
+
+
+# =============================================================================
+# Anthropic Claude implementation
+# =============================================================================
+
+def analyze_contract_with_claude(contract_text, agreement_type, user_role, risk_tolerance, progress_callback=None):
+    """Analyze contract using Anthropic Claude API."""
+    client = get_anthropic_client()
+
+    if progress_callback:
+        progress_callback(5, "Preparing contract analysis...")
+
+    overview_prompt = _build_overview_prompt(contract_text, agreement_type, user_role, risk_tolerance)
+
+    if progress_callback:
+        progress_callback(10, "Analyzing agreement structure...")
+
+    overview_response = client.messages.create(
+        model=config.ANTHROPIC_MODEL,
+        max_tokens=4096,
+        messages=[{"role": "user", "content": overview_prompt}],
+        system=SYSTEM_PROMPT
+    )
+
+    try:
+        overview = _extract_json(overview_response.content[0].text) or {
+            "title": agreement_type, "key_principles": [], "executive_summary": ""
+        }
+    except (json.JSONDecodeError, IndexError):
+        overview = {"title": agreement_type, "key_principles": [], "executive_summary": ""}
+
+    all_topics = {}
+    quick_reference = []
+
+    for idx, (topic_name, topic_description) in enumerate(TOPICS_TO_ANALYZE):
+        if progress_callback:
+            progress = 15 + int((idx / len(TOPICS_TO_ANALYZE)) * 70)
+            progress_callback(progress, f"Analyzing {topic_name}...")
+
+        topic_prompt = _build_topic_prompt(
+            contract_text, topic_name, topic_description, agreement_type, user_role, risk_tolerance
+        )
+
         try:
             topic_response = client.messages.create(
                 model=config.ANTHROPIC_MODEL,
                 max_tokens=8192,
-                messages=[
-                    {"role": "user", "content": topic_prompt}
-                ],
+                messages=[{"role": "user", "content": topic_prompt}],
                 system=SYSTEM_PROMPT
             )
-
-            topic_text = topic_response.content[0].text
-            json_match = re.search(r'\{[\s\S]*\}', topic_text)
-            if json_match:
-                topic_data = json.loads(json_match.group())
+            topic_data = _extract_json(topic_response.content[0].text)
+            if topic_data:
                 if topic_data.get("clauses"):
                     all_topics[topic_name] = topic_data["clauses"]
                 if topic_data.get("hard_limits"):
@@ -214,8 +240,154 @@ Be thorough - analyze EVERY clause related to {topic_name}. Include both explici
     if progress_callback:
         progress_callback(90, "Compiling playbook...")
 
-    # Build the final playbook structure
-    playbook = {
+    return _build_playbook(overview, all_topics, quick_reference, agreement_type, user_role)
+
+
+# =============================================================================
+# OpenAI GPT implementation
+# =============================================================================
+
+def analyze_contract_with_openai(contract_text, agreement_type, user_role, risk_tolerance, progress_callback=None):
+    """Analyze contract using OpenAI API."""
+    client = get_openai_client()
+
+    if progress_callback:
+        progress_callback(5, "Preparing contract analysis...")
+
+    overview_prompt = _build_overview_prompt(contract_text, agreement_type, user_role, risk_tolerance)
+
+    if progress_callback:
+        progress_callback(10, "Analyzing agreement structure...")
+
+    overview_response = client.chat.completions.create(
+        model=config.OPENAI_MODEL,
+        max_tokens=4096,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": overview_prompt}
+        ]
+    )
+
+    try:
+        overview = _extract_json(overview_response.choices[0].message.content) or {
+            "title": agreement_type, "key_principles": [], "executive_summary": ""
+        }
+    except (json.JSONDecodeError, IndexError):
+        overview = {"title": agreement_type, "key_principles": [], "executive_summary": ""}
+
+    all_topics = {}
+    quick_reference = []
+
+    for idx, (topic_name, topic_description) in enumerate(TOPICS_TO_ANALYZE):
+        if progress_callback:
+            progress = 15 + int((idx / len(TOPICS_TO_ANALYZE)) * 70)
+            progress_callback(progress, f"Analyzing {topic_name}...")
+
+        topic_prompt = _build_topic_prompt(
+            contract_text, topic_name, topic_description, agreement_type, user_role, risk_tolerance
+        )
+
+        try:
+            topic_response = client.chat.completions.create(
+                model=config.OPENAI_MODEL,
+                max_tokens=8192,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": topic_prompt}
+                ]
+            )
+            topic_data = _extract_json(topic_response.choices[0].message.content)
+            if topic_data:
+                if topic_data.get("clauses"):
+                    all_topics[topic_name] = topic_data["clauses"]
+                if topic_data.get("hard_limits"):
+                    quick_reference.extend(topic_data["hard_limits"])
+        except Exception as e:
+            print(f"Error analyzing {topic_name}: {e}")
+            continue
+
+    if progress_callback:
+        progress_callback(90, "Compiling playbook...")
+
+    return _build_playbook(overview, all_topics, quick_reference, agreement_type, user_role)
+
+
+# =============================================================================
+# Google Gemini implementation
+# =============================================================================
+
+def analyze_contract_with_google(contract_text, agreement_type, user_role, risk_tolerance, progress_callback=None):
+    """Analyze contract using Google Gemini API."""
+    client = get_google_client()
+
+    if progress_callback:
+        progress_callback(5, "Preparing contract analysis...")
+
+    overview_prompt = _build_overview_prompt(contract_text, agreement_type, user_role, risk_tolerance)
+
+    if progress_callback:
+        progress_callback(10, "Analyzing agreement structure...")
+
+    overview_response = client.models.generate_content(
+        model=config.GOOGLE_MODEL,
+        contents=overview_prompt,
+        config=genai.types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            max_output_tokens=4096
+        )
+    )
+
+    try:
+        overview = _extract_json(overview_response.text) or {
+            "title": agreement_type, "key_principles": [], "executive_summary": ""
+        }
+    except (json.JSONDecodeError, IndexError):
+        overview = {"title": agreement_type, "key_principles": [], "executive_summary": ""}
+
+    all_topics = {}
+    quick_reference = []
+
+    for idx, (topic_name, topic_description) in enumerate(TOPICS_TO_ANALYZE):
+        if progress_callback:
+            progress = 15 + int((idx / len(TOPICS_TO_ANALYZE)) * 70)
+            progress_callback(progress, f"Analyzing {topic_name}...")
+
+        topic_prompt = _build_topic_prompt(
+            contract_text, topic_name, topic_description, agreement_type, user_role, risk_tolerance
+        )
+
+        try:
+            topic_response = client.models.generate_content(
+                model=config.GOOGLE_MODEL,
+                contents=topic_prompt,
+                config=genai.types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    max_output_tokens=8192
+                )
+            )
+            topic_data = _extract_json(topic_response.text)
+            if topic_data:
+                if topic_data.get("clauses"):
+                    all_topics[topic_name] = topic_data["clauses"]
+                if topic_data.get("hard_limits"):
+                    quick_reference.extend(topic_data["hard_limits"])
+        except Exception as e:
+            print(f"Error analyzing {topic_name}: {e}")
+            continue
+
+    if progress_callback:
+        progress_callback(90, "Compiling playbook...")
+
+    return _build_playbook(overview, all_topics, quick_reference, agreement_type, user_role)
+
+
+# =============================================================================
+# Shared helpers
+# =============================================================================
+
+def _build_playbook(overview, all_topics, quick_reference, agreement_type, user_role):
+    """Build the final playbook dict from analyzed data."""
+    return {
         "overview": {
             "title": overview.get("title", agreement_type),
             "agreement_type": agreement_type,
@@ -238,11 +410,6 @@ Be thorough - analyze EVERY clause related to {topic_name}. Include both explici
         "quick_reference": quick_reference
     }
 
-    if progress_callback:
-        progress_callback(100, "Analysis complete")
-
-    return playbook
-
 
 def analyze_contract_chunked(
     contract_text: str,
@@ -252,13 +419,32 @@ def analyze_contract_chunked(
     progress_callback=None
 ) -> dict:
     """
-    Main entry point - routes to Claude API.
-    Maintains backward compatibility with existing code.
+    Main entry point - routes to the correct provider based on config.AI_PROVIDER.
     """
-    return analyze_contract_with_claude(
-        contract_text=contract_text,
-        agreement_type=agreement_type,
-        user_role=user_role,
-        risk_tolerance=risk_tolerance,
-        progress_callback=progress_callback
-    )
+    provider = config.AI_PROVIDER
+
+    if provider == "openai":
+        return analyze_contract_with_openai(
+            contract_text=contract_text,
+            agreement_type=agreement_type,
+            user_role=user_role,
+            risk_tolerance=risk_tolerance,
+            progress_callback=progress_callback
+        )
+    elif provider == "google":
+        return analyze_contract_with_google(
+            contract_text=contract_text,
+            agreement_type=agreement_type,
+            user_role=user_role,
+            risk_tolerance=risk_tolerance,
+            progress_callback=progress_callback
+        )
+    else:
+        # Default to Anthropic
+        return analyze_contract_with_claude(
+            contract_text=contract_text,
+            agreement_type=agreement_type,
+            user_role=user_role,
+            risk_tolerance=risk_tolerance,
+            progress_callback=progress_callback
+        )

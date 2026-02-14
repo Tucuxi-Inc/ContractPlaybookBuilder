@@ -3,6 +3,7 @@
  */
 
 // DOM Elements
+const setupSection = document.getElementById('setup-section');
 const uploadSection = document.getElementById('upload-section');
 const progressSection = document.getElementById('progress-section');
 const resultSection = document.getElementById('result-section');
@@ -18,11 +19,30 @@ const progressSubstatus = document.getElementById('progress-substatus');
 const progressReassurance = document.getElementById('progress-reassurance');
 const errorMessage = document.getElementById('error-message');
 
+// Setup elements
+const settingsBtn = document.getElementById('settings-btn');
+const setupProvider = document.getElementById('setup-provider');
+const setupModel = document.getElementById('setup-model');
+const setupApiKey = document.getElementById('setup-api-key');
+const setupSaveBtn = document.getElementById('setup-save-btn');
+const setupError = document.getElementById('setup-error');
+const setupSuccess = document.getElementById('setup-success');
+const setupKeyHint = document.getElementById('setup-key-hint');
+
 // State
 let currentJobId = null;
 let statusPollInterval = null;
 let reassuranceInterval = null;
 let reassuranceIndex = 0;
+let providersData = {};
+let apiKeyConfigured = false;
+
+// Key hint URLs per provider
+const providerKeyHints = {
+    anthropic: 'Get your key at <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com</a>',
+    openai: 'Get your key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a>',
+    google: 'Get your key at <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a>'
+};
 
 // Reassurance messages that rotate while processing
 const reassuranceMessages = [
@@ -36,7 +56,154 @@ const reassuranceMessages = [
     "Almost there — finalizing analysis...",
 ];
 
+// =============================================================================
+// Setup / Configuration
+// =============================================================================
+
+async function loadConfig() {
+    try {
+        const response = await fetch('/api/config');
+        const data = await response.json();
+
+        providersData = data.providers;
+
+        // Populate provider dropdown
+        setupProvider.innerHTML = '<option value="">-- Select Provider --</option>';
+        for (const [pid, pinfo] of Object.entries(data.providers)) {
+            const option = document.createElement('option');
+            option.value = pid;
+            option.textContent = pinfo.name;
+            setupProvider.appendChild(option);
+        }
+
+        // If a provider is already configured, pre-select it
+        if (data.provider && data.has_key) {
+            apiKeyConfigured = true;
+            setupProvider.value = data.provider;
+            updateModelDropdown(data.provider);
+            if (data.model) {
+                setupModel.value = data.model;
+            }
+            setupApiKey.placeholder = 'API key is configured (enter new key to change)';
+        } else {
+            apiKeyConfigured = false;
+        }
+
+        return data;
+    } catch (error) {
+        console.error('Failed to load config:', error);
+        return null;
+    }
+}
+
+function updateModelDropdown(provider) {
+    setupModel.innerHTML = '';
+    if (!provider || !providersData[provider]) {
+        setupModel.innerHTML = '<option value="">-- Select Provider First --</option>';
+        setupModel.disabled = true;
+        setupKeyHint.innerHTML = '';
+        return;
+    }
+
+    const models = providersData[provider].models;
+    models.forEach(m => {
+        const option = document.createElement('option');
+        option.value = m.id;
+        option.textContent = m.name;
+        setupModel.appendChild(option);
+    });
+    setupModel.disabled = false;
+    setupKeyHint.innerHTML = providerKeyHints[provider] || '';
+    validateSetupForm();
+}
+
+function validateSetupForm() {
+    const hasProvider = setupProvider.value !== '';
+    const hasKey = setupApiKey.value.trim() !== '';
+    // Allow saving if provider selected and either key entered or key was already configured
+    const keyConfigured = setupApiKey.placeholder.includes('configured');
+    setupSaveBtn.disabled = !(hasProvider && (hasKey || keyConfigured));
+}
+
+setupProvider.addEventListener('change', () => {
+    updateModelDropdown(setupProvider.value);
+    validateSetupForm();
+});
+
+setupApiKey.addEventListener('input', validateSetupForm);
+
+setupSaveBtn.addEventListener('click', async () => {
+    setupError.classList.add('hidden');
+    setupSuccess.classList.add('hidden');
+
+    const provider = setupProvider.value;
+    const model = setupModel.value;
+    const apiKey = setupApiKey.value.trim();
+
+    if (!provider) {
+        setupError.textContent = 'Please select a provider.';
+        setupError.classList.remove('hidden');
+        return;
+    }
+
+    // If key field is empty but was already configured, user may just be changing model
+    if (!apiKey && !setupApiKey.placeholder.includes('configured')) {
+        setupError.textContent = 'Please enter your API key.';
+        setupError.classList.remove('hidden');
+        return;
+    }
+
+    setupSaveBtn.disabled = true;
+    setupSaveBtn.textContent = 'Saving...';
+
+    try {
+        const body = { provider, model };
+        if (apiKey) {
+            body.api_key = apiKey;
+        }
+
+        const response = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to save configuration');
+        }
+
+        apiKeyConfigured = true;
+        setupSuccess.textContent = `Saved! Using ${providersData[provider]?.name || provider} (${model})`;
+        setupSuccess.classList.remove('hidden');
+        setupApiKey.value = '';
+        setupApiKey.placeholder = 'API key is configured (enter new key to change)';
+
+        // Transition to upload section after a brief delay
+        setTimeout(() => {
+            showSection('upload');
+        }, 800);
+
+    } catch (error) {
+        setupError.textContent = error.message;
+        setupError.classList.remove('hidden');
+    } finally {
+        setupSaveBtn.disabled = false;
+        setupSaveBtn.textContent = 'Save & Continue';
+        validateSetupForm();
+    }
+});
+
+settingsBtn.addEventListener('click', async () => {
+    await loadConfig();
+    showSection('setup');
+});
+
+// =============================================================================
 // File Upload Handling
+// =============================================================================
+
 fileInput.addEventListener('change', handleFileSelect);
 
 dropZone.addEventListener('dragover', (e) => {
@@ -83,13 +250,22 @@ function formatFileSize(bytes) {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
+// =============================================================================
 // Form Submission
+// =============================================================================
+
 uploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     const file = fileInput.files[0];
     if (!file) {
         showError('Please select a file to upload.');
+        return;
+    }
+
+    // Check if API key is configured before proceeding
+    if (!apiKeyConfigured) {
+        showError('No AI provider configured. Please click the Settings icon to select a provider and enter your API key.');
         return;
     }
 
@@ -124,16 +300,13 @@ uploadForm.addEventListener('submit', async (e) => {
         updateProgress(5, 'Starting analysis...');
         startReassuranceRotation();
 
-        // Start polling for status updates - this is the primary completion detection
+        // Start polling for status updates
         startPollingStatus(currentJobId);
 
-        // Start processing in background (don't await - it takes minutes)
-        // The polling will detect completion, but we also handle it here as backup
+        // Start processing in background
         fetch(`/api/process/${currentJobId}`, {
             method: 'POST'
         }).then(response => response.json()).then(processData => {
-            // Processing complete - the polling should have already detected this
-            // but handle here as backup in case polling missed it
             if (processData.status === 'completed') {
                 if (statusPollInterval) {
                     clearInterval(statusPollInterval);
@@ -148,10 +321,7 @@ uploadForm.addEventListener('submit', async (e) => {
                 stopReassuranceRotation();
                 showError(processData.error || 'Processing failed');
             }
-            // If neither completed nor error, let polling continue to handle it
         }).catch(error => {
-            // Only show error if we're still in processing state
-            // (polling might have already handled completion)
             if (progressSection && !progressSection.classList.contains('hidden')) {
                 if (statusPollInterval) {
                     clearInterval(statusPollInterval);
@@ -169,11 +339,13 @@ uploadForm.addEventListener('submit', async (e) => {
     }
 });
 
+// =============================================================================
 // Progress Updates
+// =============================================================================
+
 function updateProgress(percent, message) {
     progressText.textContent = message;
 
-    // Update substatus based on progress
     if (percent < 20) {
         progressSubstatus.textContent = "Parsing document and preparing for analysis";
     } else if (percent < 50) {
@@ -186,7 +358,6 @@ function updateProgress(percent, message) {
 }
 
 function startReassuranceRotation() {
-    // Rotate reassurance messages every 8 seconds
     reassuranceInterval = setInterval(() => {
         reassuranceIndex = (reassuranceIndex + 1) % reassuranceMessages.length;
         if (progressReassurance) {
@@ -225,19 +396,29 @@ function startPollingStatus(jobId) {
     }, 1000);
 }
 
+// =============================================================================
 // Download
+// =============================================================================
+
 async function downloadPlaybook(jobId) {
     window.location.href = `/api/download/${jobId}`;
 }
 
+// =============================================================================
 // UI State Management
+// =============================================================================
+
 function showSection(section) {
+    setupSection.classList.add('hidden');
     uploadSection.classList.add('hidden');
     progressSection.classList.add('hidden');
     resultSection.classList.add('hidden');
     errorSection.classList.add('hidden');
 
     switch (section) {
+        case 'setup':
+            setupSection.classList.remove('hidden');
+            break;
         case 'upload':
             uploadSection.classList.remove('hidden');
             break;
@@ -279,16 +460,18 @@ function startOver() {
     showSection('upload');
 }
 
-// Health check on load
-document.addEventListener('DOMContentLoaded', async () => {
-    try {
-        const response = await fetch('/api/health');
-        const data = await response.json();
+// =============================================================================
+// Initialization
+// =============================================================================
 
-        if (!data.api_key_configured) {
-            showError('API key is not configured. Please set the ANTHROPIC_API_KEY (or OPENAI_API_KEY) environment variable and restart the server.');
-        }
-    } catch (error) {
-        console.log('Health check failed:', error);
+document.addEventListener('DOMContentLoaded', async () => {
+    const configData = await loadConfig();
+
+    if (configData && configData.has_key) {
+        // API key is configured, go straight to upload
+        showSection('upload');
+    } else {
+        // No API key, show setup
+        showSection('setup');
     }
 });

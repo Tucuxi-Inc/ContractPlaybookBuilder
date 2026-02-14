@@ -64,6 +64,9 @@ temp/
 # Generated playbooks (users download these)
 output/
 
+# Local task tracking
+tasks/
+
 # Test files
 .pytest_cache/
 .coverage
